@@ -47,6 +47,10 @@ class FloatingControlService : Service() {
     }
     private var useMockDecision = false
 
+    private val waitFallbackThreshold = 3
+    private val fallbackTapXNorm = 0.88
+    private val fallbackTapYNorm = 0.32
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -104,7 +108,14 @@ class FloatingControlService : Service() {
         fun setCollapsed(value: Boolean) {
             collapsed = value
             controlsLayout.visibility = if (collapsed) View.GONE else View.VISIBLE
-            toggleBtn.text = if (collapsed) "展开" else "收起"
+            statusText.visibility = if (collapsed) View.GONE else View.VISIBLE
+            toggleBtn.text = if (collapsed) "◉" else "收起"
+            layout.setPadding(
+                if (collapsed) 8 else 24,
+                if (collapsed) 8 else 24,
+                if (collapsed) 8 else 24,
+                if (collapsed) 8 else 24,
+            )
         }
 
         toggleBtn.setOnClickListener {
@@ -207,6 +218,7 @@ class FloatingControlService : Service() {
         engine.setMockDecision(useMockDecision)
         loopJob = serviceScope.launch(Dispatchers.IO) {
             var nextCaptureMs = 1000L
+            var consecutiveWaits = 0
             while (isActive) {
                 try {
                     if (!AutomationAccessibilityService.isServiceReady(this@FloatingControlService)) {
@@ -234,23 +246,46 @@ class FloatingControlService : Service() {
                         continue
                     }
 
-                    val executed = engine.executeAction(result)
+                    val finalResult = if (result.action == "wait") {
+                        consecutiveWaits += 1
+                        if (consecutiveWaits >= waitFallbackThreshold) {
+                            consecutiveWaits = 0
+                            result.copy(
+                                action = "tap",
+                                xNorm = fallbackTapXNorm,
+                                yNorm = fallbackTapYNorm,
+                                swipeToXNorm = 0.0,
+                                swipeToYNorm = 0.0,
+                                durationMs = 120,
+                                nextCaptureMs = 1200,
+                                confidence = 0.8,
+                                reason = "wait_fallback_task_tap"
+                            )
+                        } else {
+                            result
+                        }
+                    } else {
+                        consecutiveWaits = 0
+                        result
+                    }
+
+                    val executed = engine.executeAction(finalResult)
                     withContext(Dispatchers.Main) {
                         statusText.text = if (executed) {
-                            "状态: ${result.action} (${result.nextCaptureMs}ms)"
+                            "状态: ${finalResult.action} (${finalResult.nextCaptureMs}ms)"
                         } else {
                             "状态: 无障碍未连接"
                         }
                     }
 
-                    if (result.action == "stop") {
+                    if (finalResult.action == "stop") {
                         withContext(Dispatchers.Main) {
                             statusText.text = "状态: 已停止"
                         }
                         break
                     }
 
-                    nextCaptureMs = result.nextCaptureMs.coerceIn(300, 5000).toLong()
+                    nextCaptureMs = finalResult.nextCaptureMs.coerceIn(300, 5000).toLong()
                     delay(nextCaptureMs)
                 } catch (_: Exception) {
                     withContext(Dispatchers.Main) {

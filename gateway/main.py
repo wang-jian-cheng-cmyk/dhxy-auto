@@ -73,7 +73,7 @@ async def decide(request: Request) -> DecideResponse:
         return mock_tap(req.current_goal_id)
 
     prompt = build_user_prompt(req)
-    raw = call_opencode(prompt)
+    raw = call_opencode(prompt, req.screenshot_file_path)
     payload = extract_json(raw)
 
     try:
@@ -94,8 +94,8 @@ async def decide(request: Request) -> DecideResponse:
         response.swipe_to_y_norm = 0
 
     print(
-        f"decision action={response.action} confidence={response.confidence:.2f} "
-        f"next={response.next_capture_ms} reason={response.reason}"
+        f"decision action={response.action} x={response.x_norm:.3f} y={response.y_norm:.3f} "
+        f"confidence={response.confidence:.2f} next={response.next_capture_ms} reason={response.reason}"
     )
     return response
 
@@ -152,15 +152,14 @@ def build_user_prompt(req: DecideRequest) -> str:
         "current_goal_id": req.current_goal_id,
         "goal_list": [g.model_dump() for g in req.goal_list],
         "history": [h.model_dump() for h in req.history[-5:]],
-        "screenshot_file_path": req.screenshot_file_path,
-        "note": "截图在本地文件路径。读取该文件后做判断。只输出严格JSON对象，不要markdown，不要代码块。",
+        "note": "截图已作为附件传入。只输出严格JSON对象，不要markdown，不要代码块。",
     }
     if req.screenshot_file_path is None:
         data["screenshot_base64"] = req.screenshot_base64 or ""
     return json.dumps(data, ensure_ascii=False)
 
 
-def call_opencode(user_prompt: str) -> str:
+def call_opencode(user_prompt: str, screenshot_file_path: str | None) -> str:
     combined_prompt = (
         "[SYSTEM_RULES]\n"
         f"{SYSTEM_PROMPT}\n\n"
@@ -169,10 +168,16 @@ def call_opencode(user_prompt: str) -> str:
         "只输出一个JSON对象。"
     )
 
+    def build_cmd(binary: str) -> list[str]:
+        cmd = [binary, "run"]
+        if screenshot_file_path:
+            cmd += ["--file", screenshot_file_path]
+        return cmd
+
     attempts = [
-        {"cmd": ["opencode", "run"], "stdin": combined_prompt, "name": "stdin_default"},
+        {"cmd": build_cmd("opencode"), "stdin": combined_prompt, "name": "stdin_default"},
         {
-            "cmd": ["/root/.opencode/bin/opencode", "run"],
+            "cmd": build_cmd("/root/.opencode/bin/opencode"),
             "stdin": combined_prompt,
             "name": "stdin_absolute",
         },
