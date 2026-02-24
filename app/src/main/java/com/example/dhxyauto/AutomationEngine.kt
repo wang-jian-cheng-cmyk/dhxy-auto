@@ -21,6 +21,9 @@ class AutomationEngine(
     )
 
     fun decideNextAction(): DecisionResponse? {
+        if (!ScreenCaptureManager.initIfNeeded(appContext)) {
+            return null
+        }
         val image = ScreenCaptureManager.captureJpegBase64()
         val payloadImage = if (image.isBlank()) Base64.encodeToString(ByteArray(0), Base64.NO_WRAP) else image
         return client.decide(goals, history.toList(), payloadImage, useMockDecision)

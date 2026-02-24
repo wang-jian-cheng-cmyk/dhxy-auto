@@ -16,12 +16,33 @@ object ScreenCaptureManager {
     private var mediaProjection: MediaProjection? = null
     private var imageReader: ImageReader? = null
     private var virtualDisplay: VirtualDisplay? = null
+    private var projectionResultCode: Int? = null
+    private var projectionData: Intent? = null
 
     @Synchronized
-    fun init(context: Context, resultCode: Int, data: Intent) {
+    fun setProjectionPermission(resultCode: Int, data: Intent) {
+        projectionResultCode = resultCode
+        projectionData = Intent(data)
+    }
+
+    @Synchronized
+    fun hasProjectionPermission(): Boolean {
+        return projectionResultCode != null && projectionData != null
+    }
+
+    @Synchronized
+    fun initIfNeeded(context: Context): Boolean {
+        if (mediaProjection != null && imageReader != null && virtualDisplay != null) {
+            return true
+        }
+
+        val resultCode = projectionResultCode ?: return false
+        val data = projectionData ?: return false
+
         release()
         val projectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjection = projectionManager.getMediaProjection(resultCode, data)
+        if (mediaProjection == null) return false
 
         val metrics = context.resources.displayMetrics
         val width = metrics.widthPixels
@@ -39,6 +60,7 @@ object ScreenCaptureManager {
             null,
             null
         )
+        return virtualDisplay != null
     }
 
     @Synchronized

@@ -217,6 +217,14 @@ class FloatingControlService : Service() {
                         continue
                     }
 
+                    if (!ScreenCaptureManager.hasProjectionPermission()) {
+                        withContext(Dispatchers.Main) {
+                            statusText.text = "状态: 请先在主界面申请录屏权限"
+                        }
+                        delay(1200)
+                        continue
+                    }
+
                     val result = engine.decideNextAction()
                     if (result == null) {
                         withContext(Dispatchers.Main) {

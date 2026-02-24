@@ -16,7 +16,7 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK && result.data != null) {
-            ScreenCaptureManager.init(this, result.resultCode, result.data!!)
+            ScreenCaptureManager.setProjectionPermission(result.resultCode, result.data!!)
         }
     }
 
