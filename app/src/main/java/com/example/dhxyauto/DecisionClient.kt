@@ -7,12 +7,14 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 
 class DecisionClient(private val baseUrl: String) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(2, TimeUnit.SECONDS)
-        .readTimeout(25, TimeUnit.SECONDS)
+        .readTimeout(130, TimeUnit.SECONDS)
+        .callTimeout(140, TimeUnit.SECONDS)
         .build()
 
     fun decide(
@@ -104,6 +106,13 @@ class DecisionClient(private val baseUrl: String) {
                     )
                 )
             }
+        } catch (e: SocketTimeoutException) {
+            DecisionResult.Failure(
+                errorCode = "gateway_client_timeout",
+                errorMessage = e.message ?: "gateway request timeout",
+                requestId = "",
+                httpStatus = -1
+            )
         } catch (e: Exception) {
             DecisionResult.Failure(
                 errorCode = "gateway_client_exception",

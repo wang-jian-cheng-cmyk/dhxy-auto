@@ -225,9 +225,20 @@ def call_opencode(user_prompt: str, screenshot_file_path: str | None) -> str:
                 input=attempt["stdin"],
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=45,
                 check=False,
             )
+        except subprocess.TimeoutExpired as exc:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error_code": "opencode_timeout",
+                    "error_message": f"opencode run timeout after {int(exc.timeout)}s",
+                },
+            ) from exc
+        except FileNotFoundError as exc:
+            errors.append(f"{attempt['name']}: FileNotFoundError: {exc}")
+            continue
         except Exception as exc:
             errors.append(f"{attempt['name']}: {type(exc).__name__}: {exc}")
             continue
