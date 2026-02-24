@@ -125,6 +125,7 @@ async def parse_decide_request(request: Request) -> DecideRequest:
 
         filename = f"frame-{session_id}-{timestamp_ms}.png"
         frame_path = TMP_DIR / sanitize_filename(filename)
+        frame_path.parent.mkdir(parents=True, exist_ok=True)
         data = await screenshot_file.read()
         frame_path.write_bytes(data)
 
