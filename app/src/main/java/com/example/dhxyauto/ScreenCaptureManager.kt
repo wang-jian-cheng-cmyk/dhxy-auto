@@ -9,6 +9,8 @@ import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import java.io.ByteArrayOutputStream
 
@@ -18,6 +20,11 @@ object ScreenCaptureManager {
     private var virtualDisplay: VirtualDisplay? = null
     private var projectionResultCode: Int? = null
     private var projectionData: Intent? = null
+    private val projectionCallback = object : MediaProjection.Callback() {
+        override fun onStop() {
+            release()
+        }
+    }
 
     @Synchronized
     fun setProjectionPermission(resultCode: Int, data: Intent) {
@@ -43,6 +50,7 @@ object ScreenCaptureManager {
         val projectionManager = context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjection = projectionManager.getMediaProjection(resultCode, data)
         if (mediaProjection == null) return false
+        mediaProjection?.registerCallback(projectionCallback, Handler(Looper.getMainLooper()))
 
         val metrics = context.resources.displayMetrics
         val width = metrics.widthPixels
@@ -93,6 +101,7 @@ object ScreenCaptureManager {
 
     @Synchronized
     fun release() {
+        mediaProjection?.unregisterCallback(projectionCallback)
         virtualDisplay?.release()
         virtualDisplay = null
         imageReader?.close()
