@@ -77,6 +77,22 @@ EOF
 chmod +x ~/.termux/boot/dhxy_gateway.sh
 ```
 
+## Accessibility diagnostics (ADB)
+
+Use these helper scripts from `gateway/` when accessibility service shows enabled-but-not-running:
+
+```bash
+cd ~/dhxy-auto/gateway
+./diagnose_accessibility.sh
+```
+
+Live filtered logcat:
+
+```bash
+cd ~/dhxy-auto/gateway
+./watch_accessibility_logcat.sh
+```
+
 ## VPN/Proxy split mode (recommended)
 
 If full global VPN breaks other apps, keep system network normal and only proxy gateway/opencode traffic:
