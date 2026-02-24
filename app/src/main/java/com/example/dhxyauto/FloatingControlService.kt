@@ -48,9 +48,6 @@ class FloatingControlService : Service() {
     }
     private var useMockDecision = false
 
-    private val waitFallbackThreshold = 2
-    private val fallbackTapXNorm = 0.88
-    private val fallbackTapYNorm = 0.32
     private var gatewayFailStreak = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -226,7 +223,6 @@ class FloatingControlService : Service() {
         engine.setMockDecision(useMockDecision)
         loopJob = serviceScope.launch(Dispatchers.IO) {
             var nextCaptureMs = 1000L
-            var consecutiveWaits = 0
             while (isActive) {
                 try {
                     if (!AutomationAccessibilityService.isServiceReady(this@FloatingControlService)) {
@@ -267,28 +263,7 @@ class FloatingControlService : Service() {
                         }
                     }
 
-                    val finalResult = if (result.action == "wait") {
-                        consecutiveWaits += 1
-                        if (consecutiveWaits >= waitFallbackThreshold) {
-                            consecutiveWaits = 0
-                            result.copy(
-                                action = "tap",
-                                xNorm = fallbackTapXNorm,
-                                yNorm = fallbackTapYNorm,
-                                swipeToXNorm = 0.0,
-                                swipeToYNorm = 0.0,
-                                durationMs = 120,
-                                nextCaptureMs = 1200,
-                                confidence = 0.8,
-                                reason = "wait_fallback_task_tap"
-                            )
-                        } else {
-                            result
-                        }
-                    } else {
-                        consecutiveWaits = 0
-                        result
-                    }
+                    val finalResult = result
 
                     val executed = engine.executeAction(finalResult)
                     withContext(Dispatchers.Main) {

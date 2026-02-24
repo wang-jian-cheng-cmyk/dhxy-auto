@@ -87,9 +87,6 @@ async def decide(request: Request) -> DecideResponse:
         except Exception:
             response = fallback_wait(req.current_goal_id, "schema_fallback")
 
-        if response.confidence < 0.75:
-            response = fallback_wait(response.goal_id, "low_confidence")
-
         if response.action in {"wait", "back", "stop"}:
             response.x_norm = 0
             response.y_norm = 0

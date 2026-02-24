@@ -78,16 +78,12 @@ class AutomationEngine(
     }
 
     private fun validate(result: DecisionResponse): DecisionResponse {
-        val safeConfidence = result.confidence.coerceIn(0.0, 1.0)
-        if (safeConfidence < 0.75) {
-            return result.copy(action = "wait", nextCaptureMs = result.nextCaptureMs.coerceIn(500, 3000))
-        }
-
         return result.copy(
             xNorm = result.xNorm.coerceIn(0.0, 1.0),
             yNorm = result.yNorm.coerceIn(0.0, 1.0),
             swipeToXNorm = result.swipeToXNorm.coerceIn(0.0, 1.0),
             swipeToYNorm = result.swipeToYNorm.coerceIn(0.0, 1.0),
+            confidence = result.confidence.coerceIn(0.0, 1.0),
             durationMs = result.durationMs.coerceIn(50, 1200),
             nextCaptureMs = result.nextCaptureMs.coerceIn(300, 5000)
         )
