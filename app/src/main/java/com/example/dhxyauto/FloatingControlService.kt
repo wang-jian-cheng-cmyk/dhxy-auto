@@ -8,6 +8,7 @@ import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
+import android.net.Uri
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
@@ -95,6 +96,8 @@ class FloatingControlService : Service() {
         val modeBtn = Button(this).apply { text = "模式: REAL" }
         val testTapBtn = Button(this).apply { text = "测试点击" }
         val openA11yBtn = Button(this).apply { text = "打开无障碍设置" }
+        val openAppDetailsBtn = Button(this).apply { text = "打开应用详情" }
+        val diagnoseBtn = Button(this).apply { text = "连接诊断" }
 
         var collapsed = false
 
@@ -129,12 +132,12 @@ class FloatingControlService : Service() {
             val width = resources.displayMetrics.widthPixels
             val height = resources.displayMetrics.heightPixels
             val svc = AutomationAccessibilityService.instance
-            if (svc == null) {
-                statusText.text = "状态: 无障碍未连接"
+            if (!AutomationAccessibilityService.isServiceReady(this)) {
+                statusText.text = "状态: ${diagnoseAccessibilityState()}"
                 return@setOnClickListener
             }
 
-            val ok = svc.tap((width * 0.5).toInt(), (height * 0.6).toInt(), 120)
+            val ok = svc?.tap((width * 0.5).toInt(), (height * 0.6).toInt(), 120) == true
             statusText.text = if (ok) "状态: 测试点击已发送" else "状态: 测试点击失败"
         }
 
@@ -143,6 +146,18 @@ class FloatingControlService : Service() {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             startActivity(intent)
+        }
+
+        openAppDetailsBtn.setOnClickListener {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", packageName, null)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        }
+
+        diagnoseBtn.setOnClickListener {
+            statusText.text = "状态: ${diagnoseAccessibilityState()}"
         }
 
         modeBtn.setOnClickListener {
@@ -164,6 +179,8 @@ class FloatingControlService : Service() {
         controlsLayout.addView(modeBtn)
         controlsLayout.addView(testTapBtn)
         controlsLayout.addView(openA11yBtn)
+        controlsLayout.addView(openAppDetailsBtn)
+        controlsLayout.addView(diagnoseBtn)
         layout.addView(headerLayout)
         layout.addView(controlsLayout)
 
@@ -192,9 +209,9 @@ class FloatingControlService : Service() {
             var nextCaptureMs = 1000L
             while (isActive) {
                 try {
-                    if (AutomationAccessibilityService.instance == null) {
+                    if (!AutomationAccessibilityService.isServiceReady(this@FloatingControlService)) {
                         withContext(Dispatchers.Main) {
-                            statusText.text = "状态: 无障碍未连接"
+                            statusText.text = "状态: ${diagnoseAccessibilityState()}"
                         }
                         delay(1000)
                         continue
@@ -242,6 +259,17 @@ class FloatingControlService : Service() {
         loopJob = null
         val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(NOTIFICATION_ID, buildNotification(reason))
+    }
+
+    private fun diagnoseAccessibilityState(): String {
+        val enabled = AutomationAccessibilityService.isServiceEnabled(this)
+        val connected = AutomationAccessibilityService.isConnected
+        return when {
+            !enabled -> "无障碍未启用"
+            enabled && !connected -> "无障碍已启用但服务未运行"
+            !AutomationAccessibilityService.isServiceReady(this) -> "无障碍状态异常"
+            else -> "无障碍已连接"
+        }
     }
 
     private fun createNotificationChannel() {

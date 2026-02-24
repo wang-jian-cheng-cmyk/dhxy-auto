@@ -2,7 +2,10 @@ package com.example.dhxyauto
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.ComponentName
+import android.content.Context
 import android.graphics.Path
+import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 
@@ -11,19 +14,48 @@ class AutomationAccessibilityService : AccessibilityService() {
         @Volatile
         var instance: AutomationAccessibilityService? = null
             private set
+
+        @Volatile
+        var isConnected: Boolean = false
+            private set
+
+        fun isServiceEnabled(context: Context): Boolean {
+            val enabled = Settings.Secure.getString(
+                context.contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            ) ?: return false
+            val component = ComponentName(context, AutomationAccessibilityService::class.java)
+            val full = component.flattenToString()
+            val short = component.flattenToShortString()
+            return enabled.split(':').any { it.equals(full, ignoreCase = true) || it.equals(short, ignoreCase = true) }
+        }
+
+        fun isServiceReady(context: Context): Boolean {
+            return isConnected && instance != null && isServiceEnabled(context)
+        }
     }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        isConnected = true
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
 
-    override fun onInterrupt() = Unit
+    override fun onInterrupt() {
+        isConnected = false
+    }
+
+    override fun onUnbind(intent: android.content.Intent?): Boolean {
+        isConnected = false
+        if (instance === this) instance = null
+        return super.onUnbind(intent)
+    }
 
     override fun onDestroy() {
         super.onDestroy()
+        isConnected = false
         if (instance === this) instance = null
     }
 

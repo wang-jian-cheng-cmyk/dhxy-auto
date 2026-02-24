@@ -10,6 +10,7 @@ This project contains:
 1. You open game manually.
 2. You tap floating `开始脚本`.
    - You can switch `模式: REAL / MOCK` from floating panel.
+   - Use `测试点击` and `连接诊断` first if accessibility seems disconnected.
 3. App captures screenshot.
 4. App calls `http://127.0.0.1:8787/decide`.
 5. Gateway calls `opencode run` and returns action JSON.
