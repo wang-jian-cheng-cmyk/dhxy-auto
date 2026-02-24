@@ -11,7 +11,6 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Handler
 import android.os.Looper
-import android.util.Base64
 import java.io.ByteArrayOutputStream
 
 object ScreenCaptureManager {
@@ -72,9 +71,9 @@ object ScreenCaptureManager {
     }
 
     @Synchronized
-    fun captureJpegBase64(quality: Int = 60): String {
-        val reader = imageReader ?: return ""
-        val image = reader.acquireLatestImage() ?: return ""
+    fun capturePngBytes(): ByteArray? {
+        val reader = imageReader ?: return null
+        val image = reader.acquireLatestImage() ?: return null
         image.use { img ->
             val plane = img.planes[0]
             val buffer = plane.buffer
@@ -93,9 +92,9 @@ object ScreenCaptureManager {
             bitmap.recycle()
 
             val stream = ByteArrayOutputStream()
-            cropped.compress(Bitmap.CompressFormat.JPEG, quality, stream)
+            cropped.compress(Bitmap.CompressFormat.PNG, 100, stream)
             cropped.recycle()
-            return Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
+            return stream.toByteArray()
         }
     }
 

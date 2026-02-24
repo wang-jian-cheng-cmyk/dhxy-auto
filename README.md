@@ -16,6 +16,8 @@ This project contains:
 5. Gateway calls `opencode run` and returns action JSON.
 6. App executes `tap/swipe/wait/back/stop` and sleeps `next_capture_ms`.
 
+Current screenshot transport uses multipart file upload (`image/png`) from APK to gateway, not base64 in command args.
+
 ## Fixed strategy files
 
 - Goals: `gateway/goals.json`

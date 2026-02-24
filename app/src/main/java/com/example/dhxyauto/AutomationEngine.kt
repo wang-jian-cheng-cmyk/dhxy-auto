@@ -1,7 +1,6 @@
 package com.example.dhxyauto
 
 import android.content.Context
-import android.util.Base64
 import java.util.ArrayDeque
 
 class AutomationEngine(
@@ -10,6 +9,9 @@ class AutomationEngine(
 ) {
     private val appContext = context.applicationContext
     private val history = ArrayDeque<HistoryItem>()
+
+    @Volatile
+    private var useMockDecision = false
 
     private val goals = mutableListOf(
         GoalItem("mainline_unlock", "主线推进直到解锁日常入口", false, 1),
@@ -24,9 +26,9 @@ class AutomationEngine(
         if (!ScreenCaptureManager.initIfNeeded(appContext)) {
             return null
         }
-        val image = ScreenCaptureManager.captureJpegBase64()
-        val payloadImage = if (image.isBlank()) Base64.encodeToString(ByteArray(0), Base64.NO_WRAP) else image
-        return client.decide(goals, history.toList(), payloadImage, useMockDecision)
+
+        val pngBytes = ScreenCaptureManager.capturePngBytes() ?: return null
+        return client.decide(goals, history.toList(), pngBytes, useMockDecision)
     }
 
     fun setMockDecision(enabled: Boolean) {
@@ -86,5 +88,3 @@ class AutomationEngine(
         history.addLast(item)
     }
 }
-    @Volatile
-    private var useMockDecision = false

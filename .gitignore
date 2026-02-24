@@ -11,3 +11,6 @@ __pycache__/
 
 # Logs
 *.log
+
+# Gateway runtime temp files
+gateway/tmp/

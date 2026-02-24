@@ -6,13 +6,15 @@ import subprocess
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 
 BASE_DIR = Path(__file__).resolve().parent
 SYSTEM_PROMPT = (BASE_DIR / "system_prompt.txt").read_text(encoding="utf-8")
 DEFAULT_GOALS = json.loads((BASE_DIR / "goals.json").read_text(encoding="utf-8"))
+TMP_DIR = BASE_DIR / "tmp"
+TMP_DIR.mkdir(exist_ok=True)
 
 
 class GoalItem(BaseModel):
@@ -35,7 +37,8 @@ class DecideRequest(BaseModel):
     goal_list: list[GoalItem]
     current_goal_id: str
     history: list[HistoryItem]
-    screenshot_base64: str
+    screenshot_base64: str | None = None
+    screenshot_file_path: str | None = None
 
 
 class DecideResponse(BaseModel):
@@ -64,7 +67,8 @@ def health() -> dict:
 
 
 @app.post("/decide", response_model=DecideResponse)
-def decide(req: DecideRequest) -> DecideResponse:
+async def decide(request: Request) -> DecideResponse:
+    req = await parse_decide_request(request)
     if MOCK_MODE:
         return mock_tap(req.current_goal_id)
 
@@ -78,7 +82,7 @@ def decide(req: DecideRequest) -> DecideResponse:
         response = fallback_wait(req.current_goal_id, "schema_fallback")
 
     if response.confidence < 0.75:
-        return fallback_wait(response.goal_id, "low_confidence")
+        response = fallback_wait(response.goal_id, "low_confidence")
 
     if response.action in {"wait", "back", "stop"}:
         response.x_norm = 0
@@ -89,26 +93,70 @@ def decide(req: DecideRequest) -> DecideResponse:
         response.swipe_to_x_norm = 0
         response.swipe_to_y_norm = 0
 
+    print(
+        f"decision action={response.action} confidence={response.confidence:.2f} "
+        f"next={response.next_capture_ms} reason={response.reason}"
+    )
     return response
 
 
 @app.post("/decide/mock", response_model=DecideResponse)
-def decide_mock(req: DecideRequest) -> DecideResponse:
+async def decide_mock(request: Request) -> DecideResponse:
+    req = await parse_decide_request(request)
     return mock_tap(req.current_goal_id)
 
 
+async def parse_decide_request(request: Request) -> DecideRequest:
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        try:
+            session_id = str(form.get("session_id", "device-local"))
+            timestamp_ms = int(form.get("timestamp_ms", "0"))
+            current_goal_id = str(form.get("current_goal_id", "idle"))
+            goal_list = json.loads(str(form.get("goal_list_json", "[]")))
+            history = json.loads(str(form.get("history_json", "[]")))
+            screenshot_file = form.get("screenshot_file")
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"invalid multipart fields: {exc}") from exc
+
+        if screenshot_file is None:
+            raise HTTPException(status_code=422, detail="missing screenshot_file")
+
+        filename = f"frame-{session_id}-{timestamp_ms}.png"
+        frame_path = TMP_DIR / sanitize_filename(filename)
+        data = await screenshot_file.read()
+        frame_path.write_bytes(data)
+
+        return DecideRequest(
+            session_id=session_id,
+            timestamp_ms=timestamp_ms,
+            current_goal_id=current_goal_id,
+            goal_list=[GoalItem(**g) for g in goal_list],
+            history=[HistoryItem(**h) for h in history],
+            screenshot_file_path=str(frame_path),
+        )
+
+    body = await request.json()
+    return DecideRequest(**body)
+
+
+def sanitize_filename(name: str) -> str:
+    return "".join(c for c in name if c.isalnum() or c in {"-", "_", "."})
+
+
 def build_user_prompt(req: DecideRequest) -> str:
-    return json.dumps(
-        {
-            "task": "根据截图和固定搬砖目标，选择下一步动作",
-            "current_goal_id": req.current_goal_id,
-            "goal_list": [g.model_dump() for g in req.goal_list],
-            "history": [h.model_dump() for h in req.history[-5:]],
-            "screenshot_base64": req.screenshot_base64,
-            "note": "只输出严格JSON对象，不要markdown，不要代码块。",
-        },
-        ensure_ascii=False,
-    )
+    data = {
+        "task": "根据截图和固定搬砖目标，选择下一步动作",
+        "current_goal_id": req.current_goal_id,
+        "goal_list": [g.model_dump() for g in req.goal_list],
+        "history": [h.model_dump() for h in req.history[-5:]],
+        "screenshot_file_path": req.screenshot_file_path,
+        "note": "截图在本地文件路径。读取该文件后做判断。只输出严格JSON对象，不要markdown，不要代码块。",
+    }
+    if req.screenshot_file_path is None:
+        data["screenshot_base64"] = req.screenshot_base64 or ""
+    return json.dumps(data, ensure_ascii=False)
 
 
 def call_opencode(user_prompt: str) -> str:
@@ -121,15 +169,11 @@ def call_opencode(user_prompt: str) -> str:
     )
 
     attempts = [
+        {"cmd": ["opencode", "run"], "stdin": combined_prompt, "name": "stdin_default"},
         {
-            "cmd": ["opencode", "run", combined_prompt],
-            "stdin": None,
-            "name": "positional_combined",
-        },
-        {
-            "cmd": ["/root/.opencode/bin/opencode", "run", combined_prompt],
-            "stdin": None,
-            "name": "absolute_path_positional",
+            "cmd": ["/root/.opencode/bin/opencode", "run"],
+            "stdin": combined_prompt,
+            "name": "stdin_absolute",
         },
     ]
 
@@ -141,14 +185,14 @@ def call_opencode(user_prompt: str) -> str:
                 input=attempt["stdin"],
                 capture_output=True,
                 text=True,
-                timeout=40,
+                timeout=60,
                 check=False,
             )
         except Exception as exc:
             errors.append(f"{attempt['name']}: {type(exc).__name__}: {exc}")
             continue
 
-        stdout = result.stdout.strip()
+        stdout = (result.stdout or "").strip()
         stderr = (result.stderr or "").strip()
         if result.returncode == 0 and stdout:
             return stdout
