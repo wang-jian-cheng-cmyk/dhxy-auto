@@ -18,10 +18,12 @@ import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class FloatingControlService : Service() {
     companion object {
@@ -32,7 +34,7 @@ class FloatingControlService : Service() {
 
     private lateinit var windowManager: WindowManager
     private var rootView: View? = null
-    private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
+    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var loopJob: Job? = null
 
     private val decisionClient by lazy {
@@ -134,25 +136,43 @@ class FloatingControlService : Service() {
 
     private fun startLoop(statusText: TextView) {
         engine.setMockDecision(useMockDecision)
-        loopJob = serviceScope.launch {
+        loopJob = serviceScope.launch(Dispatchers.IO) {
             var nextCaptureMs = 1000L
             while (isActive) {
-                val result = engine.decideNextAction()
-                if (result == null) {
-                    statusText.text = "状态: 网关异常，等待重试"
+                try {
+                    val result = engine.decideNextAction()
+                    if (result == null) {
+                        withContext(Dispatchers.Main) {
+                            statusText.text = "状态: 网关异常，等待重试"
+                        }
+                        delay(1500)
+                        continue
+                    }
+
+                    val executed = engine.executeAction(result)
+                    withContext(Dispatchers.Main) {
+                        statusText.text = if (executed) {
+                            "状态: ${result.action} (${result.nextCaptureMs}ms)"
+                        } else {
+                            "状态: 无障碍未连接"
+                        }
+                    }
+
+                    if (result.action == "stop") {
+                        withContext(Dispatchers.Main) {
+                            statusText.text = "状态: 已停止"
+                        }
+                        break
+                    }
+
+                    nextCaptureMs = result.nextCaptureMs.coerceIn(300, 5000).toLong()
+                    delay(nextCaptureMs)
+                } catch (_: Exception) {
+                    withContext(Dispatchers.Main) {
+                        statusText.text = "状态: 循环异常，重试中"
+                    }
                     delay(1500)
-                    continue
                 }
-
-                val executed = engine.executeAction(result)
-                statusText.text = if (executed) {
-                    "状态: ${result.action} (${result.nextCaptureMs}ms)"
-                } else {
-                    "状态: 无障碍未连接"
-                }
-
-                nextCaptureMs = result.nextCaptureMs.coerceIn(300, 5000).toLong()
-                delay(nextCaptureMs)
             }
         }
     }

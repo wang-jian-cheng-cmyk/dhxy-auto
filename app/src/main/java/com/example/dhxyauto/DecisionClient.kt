@@ -20,6 +20,7 @@ class DecisionClient(private val baseUrl: String) {
         screenshotBase64: String,
         useMockEndpoint: Boolean
     ): DecisionResponse? {
+        return try {
         val requestJson = JSONObject().apply {
             put("session_id", "device-local")
             put("timestamp_ms", System.currentTimeMillis())
@@ -73,6 +74,9 @@ class DecisionClient(private val baseUrl: String) {
                 confidence = json.optDouble("confidence", 0.0),
                 reason = json.optString("reason", "")
             )
+        }
+        } catch (_: Exception) {
+            null
         }
     }
 }
