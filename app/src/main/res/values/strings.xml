@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">DHXY Auto</string>
+    <string name="accessibility_service_desc">DHXY automation gesture service</string>
 </resources>
