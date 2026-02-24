@@ -1,0 +1,38 @@
+[
+  {
+    "id": "mainline_unlock",
+    "desc": "主线推进直到解锁日常与养成入口",
+    "priority": 1,
+    "done_when": "出现可进入日常界面的明确文本或图标"
+  },
+  {
+    "id": "level_gate_45",
+    "desc": "提升等级至阶段门槛",
+    "priority": 2,
+    "done_when": "等级达到配置目标"
+  },
+  {
+    "id": "one_click_build",
+    "desc": "完成一键配点并应用技能方案",
+    "priority": 3,
+    "done_when": "出现已应用方案或配置生效状态"
+  },
+  {
+    "id": "gear_baseline",
+    "desc": "将装备提升到可稳定完成日常的最低门槛",
+    "priority": 4,
+    "done_when": "基础装备达到最低强化档"
+  },
+  {
+    "id": "daily_loop",
+    "desc": "执行师门、活跃、限次副本等稳定产出任务",
+    "priority": 5,
+    "done_when": "当日循环目标完成"
+  },
+  {
+    "id": "trade_loop",
+    "desc": "背包清理、上架材料、执行搬砖资金循环",
+    "priority": 6,
+    "done_when": "当日交易流程完成"
+  }
+]

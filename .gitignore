@@ -1,0 +1,13 @@
+# Gradle and Android build outputs
+.gradle/
+**/build/
+
+# Local machine config
+local.properties
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Logs
+*.log

@@ -1,0 +1,87 @@
+package com.example.dhxyauto
+
+import android.content.Context
+import android.util.Base64
+import java.util.ArrayDeque
+
+class AutomationEngine(
+    context: Context,
+    private val client: DecisionClient
+) {
+    private val appContext = context.applicationContext
+    private val history = ArrayDeque<HistoryItem>()
+
+    private val goals = mutableListOf(
+        GoalItem("mainline_unlock", "主线推进直到解锁日常入口", false, 1),
+        GoalItem("level_gate_45", "升级到阶段等级门槛", false, 2),
+        GoalItem("one_click_build", "完成一键配点和技能方案", false, 3),
+        GoalItem("gear_baseline", "装备提升到最低通关线", false, 4),
+        GoalItem("daily_loop", "完成师门和日常循环", false, 5),
+        GoalItem("trade_loop", "执行搬砖上架和清包流程", false, 6)
+    )
+
+    fun decideNextAction(): DecisionResponse? {
+        val image = ScreenCaptureManager.captureJpegBase64()
+        val payloadImage = if (image.isBlank()) Base64.encodeToString(ByteArray(0), Base64.NO_WRAP) else image
+        return client.decide(goals, history.toList(), payloadImage, useMockDecision)
+    }
+
+    fun setMockDecision(enabled: Boolean) {
+        useMockDecision = enabled
+    }
+
+    fun executeAction(result: DecisionResponse): Boolean {
+        val safeResult = validate(result)
+        val width = appContext.resources.displayMetrics.widthPixels
+        val height = appContext.resources.displayMetrics.heightPixels
+        val x = (safeResult.xNorm * width).toInt().coerceIn(0, width - 1)
+        val y = (safeResult.yNorm * height).toInt().coerceIn(0, height - 1)
+
+        val executor = AutomationAccessibilityService.instance ?: return false
+        val ok = when (safeResult.action) {
+            "tap" -> executor.tap(x, y, safeResult.durationMs.toLong())
+            "swipe" -> {
+                val toX = (safeResult.swipeToXNorm * width).toInt().coerceIn(0, width - 1)
+                val toY = (safeResult.swipeToYNorm * height).toInt().coerceIn(0, height - 1)
+                executor.swipe(x, y, toX, toY, safeResult.durationMs.toLong())
+            }
+            "back" -> executor.goBack()
+            "wait" -> true
+            "stop" -> true
+            else -> true
+        }
+
+        pushHistory(
+            HistoryItem(
+                action = safeResult.action,
+                x = x,
+                y = y,
+                result = if (ok) "ok" else "failed"
+            )
+        )
+        return ok
+    }
+
+    private fun validate(result: DecisionResponse): DecisionResponse {
+        val safeConfidence = result.confidence.coerceIn(0.0, 1.0)
+        if (safeConfidence < 0.75) {
+            return result.copy(action = "wait", nextCaptureMs = result.nextCaptureMs.coerceIn(500, 3000))
+        }
+
+        return result.copy(
+            xNorm = result.xNorm.coerceIn(0.0, 1.0),
+            yNorm = result.yNorm.coerceIn(0.0, 1.0),
+            swipeToXNorm = result.swipeToXNorm.coerceIn(0.0, 1.0),
+            swipeToYNorm = result.swipeToYNorm.coerceIn(0.0, 1.0),
+            durationMs = result.durationMs.coerceIn(50, 1200),
+            nextCaptureMs = result.nextCaptureMs.coerceIn(300, 5000)
+        )
+    }
+
+    private fun pushHistory(item: HistoryItem) {
+        if (history.size >= 5) history.removeFirst()
+        history.addLast(item)
+    }
+}
+    @Volatile
+    private var useMockDecision = false
