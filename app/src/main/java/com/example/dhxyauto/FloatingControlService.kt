@@ -8,6 +8,7 @@ import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
+import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -92,6 +93,8 @@ class FloatingControlService : Service() {
         val pauseBtn = Button(this).apply { text = "暂停" }
         val stopBtn = Button(this).apply { text = "停止" }
         val modeBtn = Button(this).apply { text = "模式: REAL" }
+        val testTapBtn = Button(this).apply { text = "测试点击" }
+        val openA11yBtn = Button(this).apply { text = "打开无障碍设置" }
 
         var collapsed = false
 
@@ -122,6 +125,26 @@ class FloatingControlService : Service() {
             stopSelf()
         }
 
+        testTapBtn.setOnClickListener {
+            val width = resources.displayMetrics.widthPixels
+            val height = resources.displayMetrics.heightPixels
+            val svc = AutomationAccessibilityService.instance
+            if (svc == null) {
+                statusText.text = "状态: 无障碍未连接"
+                return@setOnClickListener
+            }
+
+            val ok = svc.tap((width * 0.5).toInt(), (height * 0.6).toInt(), 120)
+            statusText.text = if (ok) "状态: 测试点击已发送" else "状态: 测试点击失败"
+        }
+
+        openA11yBtn.setOnClickListener {
+            val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        }
+
         modeBtn.setOnClickListener {
             useMockDecision = !useMockDecision
             engine.setMockDecision(useMockDecision)
@@ -139,6 +162,8 @@ class FloatingControlService : Service() {
         controlsLayout.addView(pauseBtn)
         controlsLayout.addView(stopBtn)
         controlsLayout.addView(modeBtn)
+        controlsLayout.addView(testTapBtn)
+        controlsLayout.addView(openA11yBtn)
         layout.addView(headerLayout)
         layout.addView(controlsLayout)
 
@@ -167,6 +192,14 @@ class FloatingControlService : Service() {
             var nextCaptureMs = 1000L
             while (isActive) {
                 try {
+                    if (AutomationAccessibilityService.instance == null) {
+                        withContext(Dispatchers.Main) {
+                            statusText.text = "状态: 无障碍未连接"
+                        }
+                        delay(1000)
+                        continue
+                    }
+
                     val result = engine.decideNextAction()
                     if (result == null) {
                         withContext(Dispatchers.Main) {
