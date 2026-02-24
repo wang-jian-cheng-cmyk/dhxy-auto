@@ -12,6 +12,7 @@
         android:icon="@android:drawable/sym_def_app_icon"
         android:label="DHXY Auto"
         android:roundIcon="@android:drawable/sym_def_app_icon"
+        android:usesCleartextTraffic="true"
         android:supportsRtl="true"
         android:theme="@style/Theme.DhxyAuto">
 

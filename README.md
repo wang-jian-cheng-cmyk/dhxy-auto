@@ -76,6 +76,24 @@ EOF
 chmod +x ~/.termux/boot/dhxy_gateway.sh
 ```
 
+## VPN/Proxy split mode (recommended)
+
+If full global VPN breaks other apps, keep system network normal and only proxy gateway/opencode traffic:
+
+```bash
+cd ~/dhxy-auto/gateway
+cp proxy.env.example proxy.env
+# edit proxy.env to match your local proxy ports
+```
+
+Then start as usual:
+
+```bash
+./start_gateway_real.sh
+```
+
+This keeps local loopback (`127.0.0.1`) direct so APK can still call gateway.
+
 ## Quick integration test (no model dependency)
 
 Start gateway in mock mode:
