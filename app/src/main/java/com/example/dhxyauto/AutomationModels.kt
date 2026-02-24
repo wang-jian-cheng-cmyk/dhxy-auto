@@ -26,3 +26,13 @@ data class DecisionResponse(
     val confidence: Double,
     val reason: String
 )
+
+sealed class DecisionResult {
+    data class Success(val response: DecisionResponse) : DecisionResult()
+    data class Failure(
+        val errorCode: String,
+        val errorMessage: String,
+        val requestId: String,
+        val httpStatus: Int
+    ) : DecisionResult()
+}

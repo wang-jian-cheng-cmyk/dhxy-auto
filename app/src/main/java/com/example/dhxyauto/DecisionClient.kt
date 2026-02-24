@@ -20,7 +20,7 @@ class DecisionClient(private val baseUrl: String) {
         history: List<HistoryItem>,
         screenshotPngBytes: ByteArray,
         useMockEndpoint: Boolean
-    ): DecisionResponse? {
+    ): DecisionResult {
         return try {
             val sessionId = "device-local"
             val timestampMs = System.currentTimeMillis()
@@ -71,24 +71,46 @@ class DecisionClient(private val baseUrl: String) {
                 .build()
 
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return null
-                val body = response.body?.string() ?: return null
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    val json = runCatching { JSONObject(body) }.getOrNull()
+                    val detail = json?.optJSONObject("detail")
+                    val errorCode = detail?.optString("error_code", "gateway_http_error")
+                        ?: "gateway_http_error"
+                    val errorMessage = detail?.optString("error_message", body.take(180))
+                        ?: body.take(180)
+                    val requestId = detail?.optString("request_id", "") ?: ""
+                    return DecisionResult.Failure(
+                        errorCode = errorCode,
+                        errorMessage = errorMessage,
+                        requestId = requestId,
+                        httpStatus = response.code
+                    )
+                }
+
                 val json = JSONObject(body)
-                return DecisionResponse(
-                    action = json.optString("action", "wait"),
-                    xNorm = json.optDouble("x_norm", 0.0),
-                    yNorm = json.optDouble("y_norm", 0.0),
-                    swipeToXNorm = json.optDouble("swipe_to_x_norm", 0.0),
-                    swipeToYNorm = json.optDouble("swipe_to_y_norm", 0.0),
-                    durationMs = json.optInt("duration_ms", 120),
-                    nextCaptureMs = json.optInt("next_capture_ms", 1200),
-                    goalId = json.optString("goal_id", "idle"),
-                    confidence = json.optDouble("confidence", 0.0),
-                    reason = json.optString("reason", "")
+                return DecisionResult.Success(
+                    DecisionResponse(
+                        action = json.optString("action", "wait"),
+                        xNorm = json.optDouble("x_norm", 0.0),
+                        yNorm = json.optDouble("y_norm", 0.0),
+                        swipeToXNorm = json.optDouble("swipe_to_x_norm", 0.0),
+                        swipeToYNorm = json.optDouble("swipe_to_y_norm", 0.0),
+                        durationMs = json.optInt("duration_ms", 120),
+                        nextCaptureMs = json.optInt("next_capture_ms", 1200),
+                        goalId = json.optString("goal_id", "idle"),
+                        confidence = json.optDouble("confidence", 0.0),
+                        reason = json.optString("reason", "")
+                    )
                 )
             }
-        } catch (_: Exception) {
-            null
+        } catch (e: Exception) {
+            DecisionResult.Failure(
+                errorCode = "gateway_client_exception",
+                errorMessage = e.message ?: "network exception",
+                requestId = "",
+                httpStatus = -1
+            )
         }
     }
 }

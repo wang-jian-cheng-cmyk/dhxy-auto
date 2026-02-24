@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
+import uuid
 from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 
@@ -68,36 +71,58 @@ def health() -> dict:
 
 @app.post("/decide", response_model=DecideResponse)
 async def decide(request: Request) -> DecideResponse:
-    req = await parse_decide_request(request)
-    if MOCK_MODE:
-        return mock_tap(req.current_goal_id)
-
-    prompt = build_user_prompt(req)
-    raw = call_opencode(prompt, req.screenshot_file_path)
-    payload = extract_json(raw)
-
+    request_id = uuid.uuid4().hex[:12]
+    started = time.time()
     try:
-        response = DecideResponse(**payload)
-    except Exception:
-        response = fallback_wait(req.current_goal_id, "schema_fallback")
+        req = await parse_decide_request(request)
+        if MOCK_MODE:
+            return mock_tap(req.current_goal_id)
 
-    if response.confidence < 0.75:
-        response = fallback_wait(response.goal_id, "low_confidence")
+        prompt = build_user_prompt(req)
+        raw = call_opencode(prompt, req.screenshot_file_path)
+        payload = extract_json(raw)
 
-    if response.action in {"wait", "back", "stop"}:
-        response.x_norm = 0
-        response.y_norm = 0
-        response.swipe_to_x_norm = 0
-        response.swipe_to_y_norm = 0
-    elif response.action != "swipe":
-        response.swipe_to_x_norm = 0
-        response.swipe_to_y_norm = 0
+        try:
+            response = DecideResponse(**payload)
+        except Exception:
+            response = fallback_wait(req.current_goal_id, "schema_fallback")
 
-    print(
-        f"decision action={response.action} x={response.x_norm:.3f} y={response.y_norm:.3f} "
-        f"confidence={response.confidence:.2f} next={response.next_capture_ms} reason={response.reason}"
-    )
-    return response
+        if response.confidence < 0.75:
+            response = fallback_wait(response.goal_id, "low_confidence")
+
+        if response.action in {"wait", "back", "stop"}:
+            response.x_norm = 0
+            response.y_norm = 0
+            response.swipe_to_x_norm = 0
+            response.swipe_to_y_norm = 0
+        elif response.action != "swipe":
+            response.swipe_to_x_norm = 0
+            response.swipe_to_y_norm = 0
+
+        elapsed_ms = int((time.time() - started) * 1000)
+        print(
+            f"request_id={request_id} decision action={response.action} x={response.x_norm:.3f} y={response.y_norm:.3f} "
+            f"confidence={response.confidence:.2f} next={response.next_capture_ms} elapsed_ms={elapsed_ms} reason={response.reason}"
+        )
+        return response
+    except HTTPException as e:
+        detail = e.detail if isinstance(e.detail, dict) else {
+            "error_code": "http_exception",
+            "error_message": str(e.detail),
+        }
+        detail["request_id"] = request_id
+        elapsed_ms = int((time.time() - started) * 1000)
+        print(f"request_id={request_id} gateway_error code={detail.get('error_code')} elapsed_ms={elapsed_ms} detail={detail.get('error_message')}")
+        return JSONResponse(status_code=e.status_code, content={"detail": detail})
+    except Exception as e:
+        elapsed_ms = int((time.time() - started) * 1000)
+        detail = {
+            "error_code": "internal_error",
+            "error_message": str(e),
+            "request_id": request_id,
+        }
+        print(f"request_id={request_id} gateway_error code=internal_error elapsed_ms={elapsed_ms} detail={e}")
+        return JSONResponse(status_code=500, content={"detail": detail})
 
 
 @app.post("/decide/mock", response_model=DecideResponse)
@@ -118,10 +143,22 @@ async def parse_decide_request(request: Request) -> DecideRequest:
             history = json.loads(str(form.get("history_json", "[]")))
             screenshot_file = form.get("screenshot_file")
         except Exception as exc:
-            raise HTTPException(status_code=422, detail=f"invalid multipart fields: {exc}") from exc
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_code": "multipart_parse_failed",
+                    "error_message": f"invalid multipart fields: {exc}",
+                },
+            ) from exc
 
         if screenshot_file is None:
-            raise HTTPException(status_code=422, detail="missing screenshot_file")
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_code": "missing_screenshot_file",
+                    "error_message": "missing screenshot_file",
+                },
+            )
 
         filename = f"frame-{session_id}-{timestamp_ms}.png"
         frame_path = TMP_DIR / sanitize_filename(filename)
@@ -209,7 +246,13 @@ def call_opencode(user_prompt: str, screenshot_file_path: str | None) -> str:
             errors.append(f"{attempt['name']}: rc={result.returncode}, empty output")
 
     detail = " | ".join(errors)[:1400]
-    raise HTTPException(status_code=503, detail=f"opencode run failed after fallbacks: {detail}")
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "error_code": "opencode_failed",
+            "error_message": f"opencode run failed after fallbacks: {detail}",
+        },
+    )
 
 
 def extract_json(raw: str) -> dict:
@@ -224,12 +267,24 @@ def extract_json(raw: str) -> dict:
     start = raw.find("{")
     end = raw.rfind("}")
     if start < 0 or end < 0 or end < start:
-        raise HTTPException(status_code=422, detail="model output has no JSON object")
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "model_json_missing",
+                "error_message": "model output has no JSON object",
+            },
+        )
 
     try:
         return json.loads(raw[start : end + 1])
     except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=422, detail=f"invalid JSON from model: {exc}") from exc
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "model_json_invalid",
+                "error_message": f"invalid JSON from model: {exc}",
+            },
+        ) from exc
 
 
 def fallback_wait(goal_id: str, reason: str) -> DecideResponse:
@@ -240,7 +295,7 @@ def fallback_wait(goal_id: str, reason: str) -> DecideResponse:
         swipe_to_x_norm=0,
         swipe_to_y_norm=0,
         duration_ms=100,
-        next_capture_ms=1400,
+        next_capture_ms=800,
         goal_id=goal_id,
         confidence=0.2,
         reason=reason,

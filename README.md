@@ -187,3 +187,5 @@ Workflow file is at `.github/workflows/android-apk.yml`.
 
 - This is an automation scaffold. Tune strategy and prompt before long runs.
 - The app trusts local gateway only (`127.0.0.1`).
+- Gateway failure details now return structured fields: `error_code`, `error_message`, `request_id`.
+- APK writes gateway failure lines to app-private `gateway_errors.log` for diagnostics.

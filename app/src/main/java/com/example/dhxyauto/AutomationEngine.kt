@@ -22,12 +22,22 @@ class AutomationEngine(
         GoalItem("trade_loop", "执行搬砖上架和清包流程", false, 6)
     )
 
-    fun decideNextAction(): DecisionResponse? {
+    fun decideNextAction(): DecisionResult {
         if (!ScreenCaptureManager.initIfNeeded(appContext)) {
-            return null
+            return DecisionResult.Failure(
+                errorCode = "capture_not_ready",
+                errorMessage = "screen capture not initialized",
+                requestId = "",
+                httpStatus = -1
+            )
         }
 
-        val pngBytes = ScreenCaptureManager.capturePngBytes() ?: return null
+        val pngBytes = ScreenCaptureManager.capturePngBytes() ?: return DecisionResult.Failure(
+            errorCode = "capture_frame_empty",
+            errorMessage = "failed to capture latest frame",
+            requestId = "",
+            httpStatus = -1
+        )
         return client.decide(goals, history.toList(), pngBytes, useMockDecision)
     }
 

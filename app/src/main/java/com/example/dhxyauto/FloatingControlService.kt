@@ -26,6 +26,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class FloatingControlService : Service() {
     companion object {
@@ -47,9 +48,10 @@ class FloatingControlService : Service() {
     }
     private var useMockDecision = false
 
-    private val waitFallbackThreshold = 3
+    private val waitFallbackThreshold = 2
     private val fallbackTapXNorm = 0.88
     private val fallbackTapYNorm = 0.32
+    private var gatewayFailStreak = 0
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -93,6 +95,7 @@ class FloatingControlService : Service() {
         val controlsLayout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
+        var wmParams: WindowManager.LayoutParams? = null
 
         val startBtn = Button(this).apply { text = "开始脚本" }
         val pauseBtn = Button(this).apply { text = "暂停" }
@@ -116,6 +119,10 @@ class FloatingControlService : Service() {
                 if (collapsed) 8 else 24,
                 if (collapsed) 8 else 24,
             )
+            wmParams?.let { p ->
+                p.x = if (collapsed) -10 else 30
+                windowManager.updateViewLayout(layout, p)
+            }
         }
 
         toggleBtn.setOnClickListener {
@@ -209,6 +216,7 @@ class FloatingControlService : Service() {
             x = 30
             y = 160
         }
+        wmParams = params
 
         windowManager.addView(layout, params)
         rootView = layout
@@ -237,13 +245,26 @@ class FloatingControlService : Service() {
                         continue
                     }
 
-                    val result = engine.decideNextAction()
-                    if (result == null) {
-                        withContext(Dispatchers.Main) {
-                            statusText.text = "状态: 网关异常，等待重试"
+                    val decision = engine.decideNextAction()
+                    val result = when (decision) {
+                        is DecisionResult.Success -> {
+                            gatewayFailStreak = 0
+                            decision.response
                         }
-                        delay(1500)
-                        continue
+                        is DecisionResult.Failure -> {
+                            gatewayFailStreak += 1
+                            val retryMs = when {
+                                gatewayFailStreak <= 2 -> 600L
+                                gatewayFailStreak <= 5 -> 900L
+                                else -> 1200L
+                            }
+                            appendGatewayErrorLog(decision)
+                            withContext(Dispatchers.Main) {
+                                statusText.text = "状态: 网关异常(${decision.errorCode}) ${retryMs}ms重试"
+                            }
+                            delay(retryMs)
+                            continue
+                        }
                     }
 
                     val finalResult = if (result.action == "wait") {
@@ -333,5 +354,13 @@ class FloatingControlService : Service() {
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true)
             .build()
+    }
+
+    private fun appendGatewayErrorLog(failure: DecisionResult.Failure) {
+        runCatching {
+            val file = File(filesDir, "gateway_errors.log")
+            val line = "${System.currentTimeMillis()} code=${failure.errorCode} status=${failure.httpStatus} req=${failure.requestId} msg=${failure.errorMessage}\n"
+            file.appendText(line)
+        }
     }
 }
