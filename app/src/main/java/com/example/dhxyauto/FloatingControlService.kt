@@ -72,9 +72,20 @@ class FloatingControlService : Service() {
             setPadding(24, 24, 24, 24)
         }
 
+        val headerLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+
         val statusText = TextView(this).apply {
             text = "状态: 待机"
             setTextColor(0xFFFFFFFF.toInt())
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val toggleBtn = Button(this).apply { text = "收起" }
+
+        val controlsLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
         }
 
         val startBtn = Button(this).apply { text = "开始脚本" }
@@ -82,10 +93,23 @@ class FloatingControlService : Service() {
         val stopBtn = Button(this).apply { text = "停止" }
         val modeBtn = Button(this).apply { text = "模式: REAL" }
 
+        var collapsed = false
+
+        fun setCollapsed(value: Boolean) {
+            collapsed = value
+            controlsLayout.visibility = if (collapsed) View.GONE else View.VISIBLE
+            toggleBtn.text = if (collapsed) "展开" else "收起"
+        }
+
+        toggleBtn.setOnClickListener {
+            setCollapsed(!collapsed)
+        }
+
         startBtn.setOnClickListener {
             if (loopJob?.isActive == true) return@setOnClickListener
             statusText.text = "状态: 运行中"
             startLoop(statusText)
+            setCollapsed(true)
         }
 
         pauseBtn.setOnClickListener {
@@ -109,11 +133,14 @@ class FloatingControlService : Service() {
             }
         }
 
-        layout.addView(statusText)
-        layout.addView(startBtn)
-        layout.addView(pauseBtn)
-        layout.addView(stopBtn)
-        layout.addView(modeBtn)
+        headerLayout.addView(statusText)
+        headerLayout.addView(toggleBtn)
+        controlsLayout.addView(startBtn)
+        controlsLayout.addView(pauseBtn)
+        controlsLayout.addView(stopBtn)
+        controlsLayout.addView(modeBtn)
+        layout.addView(headerLayout)
+        layout.addView(controlsLayout)
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
