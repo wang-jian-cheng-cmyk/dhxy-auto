@@ -18,8 +18,14 @@ from pydantic import BaseModel, Field
 BASE_DIR = Path(__file__).resolve().parent
 SYSTEM_PROMPT = (BASE_DIR / "system_prompt.txt").read_text(encoding="utf-8")
 DEFAULT_GOALS = json.loads((BASE_DIR / "goals.json").read_text(encoding="utf-8"))
+EXPERIENCE_LIBRARY_PATH = BASE_DIR / "experience_library.json"
 TMP_DIR = BASE_DIR / "tmp"
 TMP_DIR.mkdir(exist_ok=True)
+
+if EXPERIENCE_LIBRARY_PATH.exists():
+    EXPERIENCE_LIBRARY = json.loads(EXPERIENCE_LIBRARY_PATH.read_text(encoding="utf-8"))
+else:
+    EXPERIENCE_LIBRARY = {"skills": []}
 
 
 class GoalItem(BaseModel):
@@ -72,6 +78,8 @@ MOCK_MODE = os.getenv("MOCK_DECISION", "0") == "1"
 @dataclass
 class SessionContext:
     memory_lines: deque[str] = field(default_factory=lambda: deque(maxlen=18))
+    active_steps: deque[dict] = field(default_factory=deque)
+    active_skill_id: str = ""
     updated_at_ms: int = 0
 
 
@@ -83,7 +91,13 @@ def health() -> dict:
     return {
         "ok": True,
         "default_goals": DEFAULT_GOALS,
+        "experience_skills": len(EXPERIENCE_LIBRARY.get("skills", [])),
     }
+
+
+@app.get("/experience")
+def experience() -> dict:
+    return EXPERIENCE_LIBRARY
 
 
 @app.post("/decide", response_model=DecideResponse)
@@ -101,7 +115,7 @@ async def decide(request: Request) -> DecideResponse:
         payload = extract_json(raw)
 
         try:
-            response = DecideResponse(**payload)
+            response = normalize_decision_payload(payload, req, session)
         except Exception:
             response = fallback_wait(req.current_goal_id, "schema_fallback")
 
@@ -200,18 +214,84 @@ def sanitize_filename(name: str) -> str:
 
 
 def build_user_prompt(req: DecideRequest, session: SessionContext) -> str:
+    candidates = select_experience_candidates(req, session)
     data = {
         "task": "根据截图和固定搬砖目标，选择下一步动作",
         "current_goal_id": req.current_goal_id,
         "goal_list": [g.model_dump() for g in req.goal_list],
         "history": [h.model_dump() for h in req.history[-5:]],
-        "note": "截图已作为附件传入。只输出严格JSON对象，不要markdown，不要代码块。",
+        "active_skill": {
+            "skill_id": session.active_skill_id,
+            "remaining_steps": list(session.active_steps),
+        },
+        "experience_candidates": candidates,
+        "note": "截图已作为附件传入。先判断是否命中经验技能。输出JSON需包含match(hit/miss)、goal_id、skill_id、step_index，并给出action对象(type/x_norm/y_norm/swipe_to_x_norm/swipe_to_y_norm/duration_ms/next_capture_ms/confidence/reason)。命中且存在后续步骤时可返回next_steps数组。",
     }
     if req.screenshot_file_path is None:
         data["screenshot_base64"] = req.screenshot_base64 or ""
     if session.memory_lines:
         data["session_memory"] = list(session.memory_lines)
     return json.dumps(data, ensure_ascii=False)
+
+
+def select_experience_candidates(req: DecideRequest, session: SessionContext) -> list[dict]:
+    skills = EXPERIENCE_LIBRARY.get("skills", [])
+    candidates: list[dict] = []
+    for skill in skills:
+        if req.current_goal_id in skill.get("goals", []):
+            candidates.append(skill)
+            continue
+        if session.active_skill_id and skill.get("skill_id") == session.active_skill_id:
+            candidates.append(skill)
+
+    if not candidates:
+        candidates = skills[:3]
+    return candidates[:5]
+
+
+def normalize_decision_payload(payload: dict, req: DecideRequest, session: SessionContext) -> DecideResponse:
+    match = str(payload.get("match", "miss"))
+    skill_id = str(payload.get("skill_id", ""))
+    next_steps = payload.get("next_steps", [])
+    action_payload = payload.get("action") if isinstance(payload.get("action"), dict) else payload
+
+    action = str(action_payload.get("type", action_payload.get("action", "wait")))
+    response = DecideResponse(
+        action=action,
+        x_norm=float(action_payload.get("x_norm", 0.0)),
+        y_norm=float(action_payload.get("y_norm", 0.0)),
+        swipe_to_x_norm=float(action_payload.get("swipe_to_x_norm", 0.0)),
+        swipe_to_y_norm=float(action_payload.get("swipe_to_y_norm", 0.0)),
+        duration_ms=int(action_payload.get("duration_ms", 120)),
+        next_capture_ms=int(action_payload.get("next_capture_ms", 1000)),
+        goal_id=str(payload.get("goal_id", req.current_goal_id)),
+        confidence=float(action_payload.get("confidence", payload.get("confidence", 0.0))),
+        reason=str(action_payload.get("reason", payload.get("reason", ""))),
+    )
+
+    if match == "hit" and next_steps and isinstance(next_steps, list):
+        session.active_skill_id = skill_id
+        session.active_steps = deque(next_steps)
+    elif match == "miss":
+        session.active_skill_id = ""
+        session.active_steps.clear()
+
+    if response.action == "wait" and session.active_steps:
+        step = session.active_steps.popleft()
+        response = DecideResponse(
+            action=str(step.get("type", "wait")),
+            x_norm=float(step.get("x_norm", 0.0)),
+            y_norm=float(step.get("y_norm", 0.0)),
+            swipe_to_x_norm=float(step.get("swipe_to_x_norm", 0.0)),
+            swipe_to_y_norm=float(step.get("swipe_to_y_norm", 0.0)),
+            duration_ms=int(step.get("duration_ms", 120)),
+            next_capture_ms=int(step.get("next_capture_ms", 1000)),
+            goal_id=req.current_goal_id,
+            confidence=float(step.get("confidence", 0.8)),
+            reason=str(step.get("reason", "experience_sequence_step")),
+        )
+
+    return response
 
 
 def append_session_memory(session: SessionContext, req: DecideRequest, response: DecideResponse) -> None:

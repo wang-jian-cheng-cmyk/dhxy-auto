@@ -191,3 +191,4 @@ Workflow file is at `.github/workflows/android-apk.yml`.
 - APK writes gateway failure lines to app-private `gateway_errors.log` for diagnostics.
 - Gateway keeps short in-memory session memory per `session_id` and injects it into model context.
 - Rule recovery sequences use randomized per-step delays (weighted 1-3s) to mimic human rhythm.
+- Gateway now supports goal-based experience matching (`match: hit/miss`) with candidate skills from `gateway/experience_library.json`.

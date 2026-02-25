@@ -1,0 +1,58 @@
+{
+  "skills": [
+    {
+      "skill_id": "role_panel_exit_v1",
+      "goals": ["mainline_unlock", "daily_loop"],
+      "description": "从角色属性/章节面板退出到主界面",
+      "precondition": "出现角色属性或章节面板且多次点击无变化",
+      "steps": [
+        {
+          "type": "tap",
+          "x_norm": 0.79,
+          "y_norm": 0.11,
+          "duration_ms": 120,
+          "next_capture_ms": 1200,
+          "reason": "点击右上角关闭"
+        },
+        {
+          "type": "tap",
+          "x_norm": 0.72,
+          "y_norm": 0.40,
+          "duration_ms": 120,
+          "next_capture_ms": 1200,
+          "reason": "关闭中间遮挡弹窗"
+        },
+        {
+          "type": "back",
+          "duration_ms": 100,
+          "next_capture_ms": 1300,
+          "reason": "兜底返回主场景"
+        }
+      ]
+    },
+    {
+      "skill_id": "dialog_continue_v1",
+      "goals": ["mainline_unlock"],
+      "description": "剧情对话连点推进",
+      "precondition": "出现剧情对话框或继续提示",
+      "steps": [
+        {
+          "type": "tap",
+          "x_norm": 0.50,
+          "y_norm": 0.82,
+          "duration_ms": 120,
+          "next_capture_ms": 1000,
+          "reason": "点击对话推进"
+        },
+        {
+          "type": "tap",
+          "x_norm": 0.95,
+          "y_norm": 0.96,
+          "duration_ms": 120,
+          "next_capture_ms": 1000,
+          "reason": "点击继续提示"
+        }
+      ]
+    }
+  ]
+}
