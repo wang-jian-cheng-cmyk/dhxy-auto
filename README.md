@@ -189,3 +189,5 @@ Workflow file is at `.github/workflows/android-apk.yml`.
 - The app trusts local gateway only (`127.0.0.1`).
 - Gateway failure details now return structured fields: `error_code`, `error_message`, `request_id`.
 - APK writes gateway failure lines to app-private `gateway_errors.log` for diagnostics.
+- Gateway keeps short in-memory session memory per `session_id` and injects it into model context.
+- Rule recovery sequences use randomized per-step delays (weighted 1-3s) to mimic human rhythm.

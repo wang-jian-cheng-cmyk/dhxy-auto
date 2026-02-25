@@ -27,6 +27,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.random.Random
 
 class FloatingControlService : Service() {
     companion object {
@@ -265,6 +266,15 @@ class FloatingControlService : Service() {
 
                     val finalResult = result
 
+                    if (engine.shouldTriggerRolePanelSequence(finalResult.reason)) {
+                        val ok = executeRolePanelSequence(engine, statusText)
+                        withContext(Dispatchers.Main) {
+                            statusText.text = if (ok) "状态: 序列恢复已执行" else "状态: 序列恢复失败"
+                        }
+                        delay(600)
+                        continue
+                    }
+
                     val executed = engine.executeAction(finalResult)
                     withContext(Dispatchers.Main) {
                         statusText.text = if (executed) {
@@ -336,6 +346,43 @@ class FloatingControlService : Service() {
             val file = File(filesDir, "gateway_errors.log")
             val line = "${System.currentTimeMillis()} code=${failure.errorCode} status=${failure.httpStatus} req=${failure.requestId} msg=${failure.errorMessage}\n"
             file.appendText(line)
+        }
+    }
+
+    private suspend fun executeRolePanelSequence(engine: AutomationEngine, statusText: TextView): Boolean {
+        val sequence = listOf(
+            DecisionResponse("tap", 0.79, 0.12, 0.0, 0.0, 120, 1000, "recovery", 1.0, "close_panel"),
+            DecisionResponse("tap", 0.72, 0.40, 0.0, 0.0, 120, 1000, "recovery", 1.0, "close_popup"),
+            DecisionResponse("back", 0.0, 0.0, 0.0, 0.0, 100, 1000, "recovery", 1.0, "ensure_exit")
+        )
+
+        for (step in sequence) {
+            val ok = engine.executeAction(step)
+            withContext(Dispatchers.Main) {
+                statusText.text = if (ok) "状态: 序列 ${step.action}" else "状态: 序列执行失败"
+            }
+            if (!ok) return false
+            delay(randomHumanDelayMs(step.action))
+        }
+        return true
+    }
+
+    private fun randomHumanDelayMs(action: String): Long {
+        val base = weightedOneToThreeSeconds()
+        val multiplier = when (action) {
+            "swipe", "back" -> 1.2
+            else -> 1.0
+        }
+        val jitter = Random.nextLong(0, 401)
+        return (base * multiplier + jitter).toLong().coerceAtMost(4500)
+    }
+
+    private fun weightedOneToThreeSeconds(): Long {
+        val r = Random.nextInt(100)
+        return when {
+            r < 20 -> 1000L
+            r < 75 -> 2000L
+            else -> 3000L
         }
     }
 }

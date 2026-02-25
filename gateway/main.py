@@ -5,6 +5,8 @@ import os
 import subprocess
 import time
 import uuid
+from collections import deque
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -32,6 +34,12 @@ class HistoryItem(BaseModel):
     x: int = 0
     y: int = 0
     result: str = "unknown"
+    reason: str = ""
+    confidence: float = 0.0
+    goal_id: str = ""
+    effect: str = "unknown"
+    stuck_signal: bool = False
+    timestamp_ms: int = 0
 
 
 class DecideRequest(BaseModel):
@@ -61,6 +69,15 @@ app = FastAPI(title="DHXY Local Gateway", version="0.1.0")
 MOCK_MODE = os.getenv("MOCK_DECISION", "0") == "1"
 
 
+@dataclass
+class SessionContext:
+    memory_lines: deque[str] = field(default_factory=lambda: deque(maxlen=18))
+    updated_at_ms: int = 0
+
+
+SESSION_STORE: dict[str, SessionContext] = {}
+
+
 @app.get("/health")
 def health() -> dict:
     return {
@@ -75,10 +92,11 @@ async def decide(request: Request) -> DecideResponse:
     started = time.time()
     try:
         req = await parse_decide_request(request)
+        session = SESSION_STORE.setdefault(req.session_id, SessionContext())
         if MOCK_MODE:
             return mock_tap(req.current_goal_id)
 
-        prompt = build_user_prompt(req)
+        prompt = build_user_prompt(req, session)
         raw = call_opencode(prompt, req.screenshot_file_path)
         payload = extract_json(raw)
 
@@ -97,6 +115,7 @@ async def decide(request: Request) -> DecideResponse:
             response.swipe_to_y_norm = 0
 
         elapsed_ms = int((time.time() - started) * 1000)
+        append_session_memory(session, req, response)
         print(
             f"request_id={request_id} decision action={response.action} x={response.x_norm:.3f} y={response.y_norm:.3f} "
             f"confidence={response.confidence:.2f} next={response.next_capture_ms} elapsed_ms={elapsed_ms} reason={response.reason}"
@@ -180,7 +199,7 @@ def sanitize_filename(name: str) -> str:
     return "".join(c for c in name if c.isalnum() or c in {"-", "_", "."})
 
 
-def build_user_prompt(req: DecideRequest) -> str:
+def build_user_prompt(req: DecideRequest, session: SessionContext) -> str:
     data = {
         "task": "根据截图和固定搬砖目标，选择下一步动作",
         "current_goal_id": req.current_goal_id,
@@ -190,7 +209,21 @@ def build_user_prompt(req: DecideRequest) -> str:
     }
     if req.screenshot_file_path is None:
         data["screenshot_base64"] = req.screenshot_base64 or ""
+    if session.memory_lines:
+        data["session_memory"] = list(session.memory_lines)
     return json.dumps(data, ensure_ascii=False)
+
+
+def append_session_memory(session: SessionContext, req: DecideRequest, response: DecideResponse) -> None:
+    line = (
+        f"goal={req.current_goal_id} action={response.action} x={response.x_norm:.3f} y={response.y_norm:.3f} "
+        f"next={response.next_capture_ms} reason={response.reason}"
+    )
+    if req.history:
+        last = req.history[-1]
+        line += f" prev_effect={last.effect} prev_result={last.result}"
+    session.memory_lines.append(line)
+    session.updated_at_ms = int(time.time() * 1000)
 
 
 def call_opencode(user_prompt: str, screenshot_file_path: str | None) -> str:

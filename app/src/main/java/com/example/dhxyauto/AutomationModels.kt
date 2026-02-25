@@ -11,7 +11,13 @@ data class HistoryItem(
     val action: String,
     val x: Int,
     val y: Int,
-    val result: String
+    val result: String,
+    val reason: String,
+    val confidence: Double,
+    val goalId: String,
+    val effect: String,
+    val stuckSignal: Boolean,
+    val timestampMs: Long
 )
 
 data class DecisionResponse(

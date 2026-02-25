@@ -47,6 +47,12 @@ class DecisionClient(private val baseUrl: String) {
                             put("x", it.x)
                             put("y", it.y)
                             put("result", it.result)
+                            put("reason", it.reason)
+                            put("confidence", it.confidence)
+                            put("goal_id", it.goalId)
+                            put("effect", it.effect)
+                            put("stuck_signal", it.stuckSignal)
+                            put("timestamp_ms", it.timestampMs)
                         }
                     )
                 }

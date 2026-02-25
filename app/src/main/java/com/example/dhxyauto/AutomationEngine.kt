@@ -1,6 +1,7 @@
 package com.example.dhxyauto
 
 import android.content.Context
+import java.security.MessageDigest
 import java.util.ArrayDeque
 
 class AutomationEngine(
@@ -9,6 +10,9 @@ class AutomationEngine(
 ) {
     private val appContext = context.applicationContext
     private val history = ArrayDeque<HistoryItem>()
+    private var lastFrameHash: String? = null
+    private var sameFrameCount = 0
+    private var latestFrameHash: String? = null
 
     @Volatile
     private var useMockDecision = false
@@ -38,6 +42,24 @@ class AutomationEngine(
             requestId = "",
             httpStatus = -1
         )
+
+        val frameHash = sha1Hex(pngBytes)
+        latestFrameHash = frameHash
+        val effect = if (lastFrameHash == null) {
+            "unknown"
+        } else if (lastFrameHash == frameHash) {
+            "no_change"
+        } else {
+            "changed"
+        }
+        updateLatestHistoryEffect(effect)
+
+        if (effect == "no_change") {
+            sameFrameCount += 1
+        } else {
+            sameFrameCount = 0
+        }
+
         return client.decide(goals, history.toList(), pngBytes, useMockDecision)
     }
 
@@ -71,10 +93,22 @@ class AutomationEngine(
                 action = safeResult.action,
                 x = x,
                 y = y,
-                result = if (ok) "ok" else "failed"
+                result = if (ok) "ok" else "failed",
+                reason = safeResult.reason,
+                confidence = safeResult.confidence,
+                goalId = safeResult.goalId,
+                effect = "pending",
+                stuckSignal = sameFrameCount >= 2,
+                timestampMs = System.currentTimeMillis()
             )
         )
+        lastFrameHash = latestFrameHash
         return ok
+    }
+
+    fun shouldTriggerRolePanelSequence(reason: String): Boolean {
+        val hitKeyword = reason.contains("角色属性") || reason.contains("属性面板") || reason.contains("弹窗遮挡")
+        return hitKeyword && sameFrameCount >= 2
     }
 
     private fun validate(result: DecisionResponse): DecisionResponse {
@@ -92,5 +126,16 @@ class AutomationEngine(
     private fun pushHistory(item: HistoryItem) {
         if (history.size >= 5) history.removeFirst()
         history.addLast(item)
+    }
+
+    private fun updateLatestHistoryEffect(effect: String) {
+        if (history.isEmpty()) return
+        val last = history.removeLast()
+        history.addLast(last.copy(effect = effect, stuckSignal = sameFrameCount >= 2))
+    }
+
+    private fun sha1Hex(bytes: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-1").digest(bytes)
+        return digest.joinToString("") { "%02x".format(it) }
     }
 }
